@@ -26,6 +26,13 @@ def fetch_html_content(url):
         print(f"Error fetching URL {url}: {e}")
         return None
 
+def get_td_text(tds, idx):
+    try:
+        td = tds[idx]
+        return td.get_text(strip=True) if isinstance(td, Tag) else None
+    except IndexError:
+        return None
+
 def extract_course_data_from_html(html_content):
     """
     Extracts course data from the given HTML content.
@@ -39,7 +46,18 @@ def extract_course_data_from_html(html_content):
     """
     soup = BeautifulSoup(html_content, 'html.parser')
 
+    # After: soup = BeautifulSoup(html_content, 'html.parser')
+    for idx, table in enumerate(soup.find_all('table')):
+        for tr in table.find_all('tr', attrs={'bgcolor': '#000000'}):
+            print(f"Table {idx} header row: {tr.get_text(separator=' | ', strip=True)}")
+
     main_table = None
+
+    if main_table:
+        rows = main_table.find_all('tr')
+        print(f"Main table found with {len(rows)} rows")
+    else:
+        print("No main table found")
     
     # Find all tables
     all_tables = soup.find_all('table')
@@ -53,7 +71,8 @@ def extract_course_data_from_html(html_content):
             # Confirm it has the expected bold white text headers
             tds_in_header = header_row.find_all('td')
             # Check if one of the first few td's contains "Fac" (case-insensitive), dynamic check that it's the correct main data table
-            if any("Fac" in td.get_text(strip=True) for td in tds_in_header[:3]):
+            print([td.get_text(strip=True) for td in tds_in_header])
+            if any("Fac" in td.get_text(strip=True) for td in tds_in_header):
                 main_table = table
                 break
 
@@ -73,107 +92,92 @@ def extract_course_data_from_html(html_content):
     for i, row in enumerate(rows):
         if i == 0:
             continue
-
         if not isinstance(row, Tag):
             continue
-        tds = [td for td in row.find_all('td', recursive=False) if isinstance(td, Tag)] # Direct children TDs, Tag objects
-
-        # Case 1: Context header row (e.g., "AP ADMB S2 Essentials of Emergency Management")
-        # These rows have 3 specific TDs (Fac, Dept, Term) and then a TD with colspan='8' for the title.
+        tds = [td for td in row.find_all('td', recursive=False) if isinstance(td, Tag)]
         if len(tds) == 4 and tds[3].get('colspan') == '8':
             current_fac = tds[0].get_text(strip=True) or None
             current_dept = tds[1].get_text(strip=True) or None
             current_term = tds[2].get_text(strip=True) or None
             current_adms_context_title = tds[3].get_text(strip=True) or None
-            continue # This row is a context header, not a data entry
-        
-        # Case 2: Actual data row
-        # These rows start with a <td colspan='3'>&nbsp;</td> (index 0)
-        # followed by 8 more actual data columns (total 9 direct `<td>` children)
-        elif len(tds) == 9 and tds[0].get('colspan') == '3':
-            # Extract data from the relevant cells (tds[1] to tds[8])
-            course_id = tds[1].get_text(strip=True) if isinstance(tds[1], Tag) else None
-            loi = tds[2].get_text(strip=True) if isinstance(tds[2], Tag) else None
-            course_type = tds[3].get_text(strip=True) if isinstance(tds[3], Tag) else None
-            meet = tds[4].get_text(strip=True) if isinstance(tds[4], Tag) else None
-            cat_no = tds[5].get_text(strip=True) if isinstance(tds[5], Tag) else None
-
-            # Handle the nested table for schedule information (tds[6])
+            continue
+        elif len(tds) >= 7 and tds[0].get('colspan') == '3':
+            if len(tds) < 9:
+                print(f"Warning: Row {i} had {len(tds)} tds, expected 9. HTML: {str(row)[:100]}")
+            course_id = get_td_text(tds, 1)
+            loi = get_td_text(tds, 2)
+            course_type = get_td_text(tds, 3)
+            meet = get_td_text(tds, 4)
+            cat_no = get_td_text(tds, 5)
             schedule_entries = []
-            if isinstance(tds[6], Tag):
-                schedule_table = tds[6].find('table')
+            schedule_td = tds[6] if len(tds) > 6 else None
+            if isinstance(schedule_td, Tag):
+                schedule_table = schedule_td.find('table')
                 if isinstance(schedule_table, Tag):
-                    inner_rows = schedule_table.find_all('tr')
+                    inner_rows = schedule_table.find_all('tr') if isinstance(schedule_table, Tag) else []
                     for inner_row in inner_rows:
                         if isinstance(inner_row, Tag):
-                            inner_tds = inner_row.find_all('td')
+                            inner_tds = inner_row.find_all('td') if isinstance(inner_row, Tag) else []
                             if len(inner_tds) == 5:
                                 schedule_entry = {
-                                    "Day": inner_tds[0].get_text(strip=True) if isinstance(inner_tds[0], Tag) else None,
-                                    "Time": inner_tds[1].get_text(strip=True) if isinstance(inner_tds[1], Tag) else None,
-                                    "Dur": inner_tds[2].get_text(strip=True) if isinstance(inner_tds[2], Tag) else None,
-                                    "Campus": inner_tds[3].get_text(strip=True) if isinstance(inner_tds[3], Tag) else None,
-                                    "Room": inner_tds[4].get_text(strip=True) if isinstance(inner_tds[4], Tag) else None
+                                    "Day": get_td_text(inner_tds, 0),
+                                    "Time": get_td_text(inner_tds, 1),
+                                    "Dur": get_td_text(inner_tds, 2),
+                                    "Campus": get_td_text(inner_tds, 3),
+                                    "Room": get_td_text(inner_tds, 4)
                                 }
                                 schedule_entries.append(schedule_entry)
-            
-            # Instructors (tds[7])
-            instructors = tds[7].get_text(strip=True) if isinstance(tds[7], Tag) else None
-            
-            # Notes/Additional Fees (tds[8])
-            notes_td = tds[8]
+            instructors = get_td_text(tds, 7)
+            notes_td = tds[8] if len(tds) > 8 else None
             notes_text = notes_td.get_text(strip=True) if isinstance(notes_td, Tag) else None
             course_outline_link = None
             if isinstance(notes_td, Tag):
                 course_outline_link_tag = notes_td.find('a')
                 if isinstance(course_outline_link_tag, Tag):
                     course_outline_link = course_outline_link_tag.get('href')
-            
-            # If there are multiple schedule entries (multiple meeting times for one course section),
-            # create a separate record for each to keep the final DataFrame/JSON flat.
             if schedule_entries:
                 for sched_entry in schedule_entries:
                     parsed_rows.append({
-                        "Fac": current_fac,
-                        "Dept": current_dept,
-                        "Term": current_term,
-                        "Course Title": current_adms_context_title, # Title of the ADMS group
-                        "Course ID": course_id,
-                        "LOI": loi,
-                        "Type": course_type,
-                        "Meet": meet,
-                        "Cat.No.": cat_no,
-                        "Day": sched_entry.get("Day"),
-                        "Time": sched_entry.get("Time"),
-                        "Dur": sched_entry.get("Dur"),
-                        "Campus": sched_entry.get("Campus"),
-                        "Room": sched_entry.get("Room"),
-                        "Instructors": instructors,
-                        "Notes/Additional Fees": notes_text, # Use just the text for the main entry
-                        "Course Outline Link": course_outline_link
+                        "faculty": current_fac,
+                        "department": current_dept,
+                        "term": current_term,
+                        "course_title": current_adms_context_title,
+                        "course_id": course_id,
+                        "loi": loi,
+                        "type": course_type,
+                        "meet": meet,
+                        "catalog_number": cat_no,
+                        "day": sched_entry.get("Day"),
+                        "time": sched_entry.get("Time"),
+                        "duration": sched_entry.get("Dur"),
+                        "campus": sched_entry.get("Campus"),
+                        "room": sched_entry.get("Room"),
+                        "instructors": instructors,
+                        "notes_or_fees": notes_text,
+                        "course_outline_link": course_outline_link
                     })
-            else: # Handle cases where schedule table might be empty or missing for some reason
+            else:
                 parsed_rows.append({
-                    "Fac": current_fac,
-                    "Dept": current_dept,
-                    "Term": current_term,
-                    "Course Title": current_adms_context_title,
-                    "Course ID": course_id,
-                    "LOI": loi,
-                    "Type": course_type,
-                    "Meet": meet,
-                    "Cat.No.": cat_no,
-                    "Day": None,
-                    "Time": None,
-                    "Dur": None,
-                    "Campus": None,
-                    "Room": None,
-                    "Instructors": instructors,
-                    "Notes/Additional Fees": notes_text,
-                    "Course Outline Link": course_outline_link
+                    "faculty": current_fac,
+                    "department": current_dept,
+                    "term": current_term,
+                    "course_title": current_adms_context_title,
+                    "course_id": course_id,
+                    "loi": loi,
+                    "type": course_type,
+                    "meet": meet,
+                    "catalog_number": cat_no,
+                    "day": None,
+                    "time": None,
+                    "duration": None,
+                    "campus": None,
+                    "room": None,
+                    "instructors": instructors,
+                    "notes_or_fees": notes_text,
+                    "course_outline_link": course_outline_link
                 })
-        # If it's neither a context row nor a data row, skip it.
-        # This handles other empty rows, or unexpected structures.
+        else:
+            print(f"Skipping row {i}: {len(tds)} tds. HTML: {str(row)[:100]}")
 
     # Create DataFrame
     if parsed_rows:
