@@ -87,6 +87,9 @@ def extract_course_data_from_html(html_content):
     current_dept = None
     current_term = None
     current_adms_context_title = None
+    last_course = None  # Track the last main course row for nesting sections
+    last_section = None  # Track the last section for meeting times
+    row_type_counts = {"course": 0, "section": 0, "meeting_time": 0, "colspan": 0, "other": 0}
 
     # Iterate through rows, skipping the main header row (index 0)
     for i, row in enumerate(rows):
@@ -95,39 +98,23 @@ def extract_course_data_from_html(html_content):
         if not isinstance(row, Tag):
             continue
         tds = [td for td in row.find_all('td', recursive=False) if isinstance(td, Tag)]
+        # Faculty/Dept/Term/Title row
         if len(tds) == 4 and tds[3].get('colspan') == '8':
             current_fac = tds[0].get_text(strip=True) or None
             current_dept = tds[1].get_text(strip=True) or None
             current_term = tds[2].get_text(strip=True) or None
             current_adms_context_title = tds[3].get_text(strip=True) or None
             continue
+        # 7+ tds with colspan (colspan row)
         elif len(tds) >= 7 and tds[0].get('colspan') == '3':
-            if len(tds) < 9:
-                print(f"Warning: Row {i} had {len(tds)} tds, expected 9. HTML: {str(row)[:100]}")
+            row_type_counts["colspan"] += 1
+            # Try to extract as much as possible
             course_id = get_td_text(tds, 1)
             loi = get_td_text(tds, 2)
             course_type = get_td_text(tds, 3)
             meet = get_td_text(tds, 4)
             cat_no = get_td_text(tds, 5)
-            schedule_entries = []
-            schedule_td = tds[6] if len(tds) > 6 else None
-            if isinstance(schedule_td, Tag):
-                schedule_table = schedule_td.find('table')
-                if isinstance(schedule_table, Tag):
-                    inner_rows = schedule_table.find_all('tr') if isinstance(schedule_table, Tag) else []
-                    for inner_row in inner_rows:
-                        if isinstance(inner_row, Tag):
-                            inner_tds = inner_row.find_all('td') if isinstance(inner_row, Tag) else []
-                            if len(inner_tds) == 5:
-                                schedule_entry = {
-                                    "Day": get_td_text(inner_tds, 0),
-                                    "Time": get_td_text(inner_tds, 1),
-                                    "Dur": get_td_text(inner_tds, 2),
-                                    "Campus": get_td_text(inner_tds, 3),
-                                    "Room": get_td_text(inner_tds, 4)
-                                }
-                                schedule_entries.append(schedule_entry)
-            instructors = get_td_text(tds, 7)
+            instructors = get_td_text(tds, 7) if len(tds) > 7 else None
             notes_td = tds[8] if len(tds) > 8 else None
             notes_text = notes_td.get_text(strip=True) if isinstance(notes_td, Tag) else None
             course_outline_link = None
@@ -135,49 +122,115 @@ def extract_course_data_from_html(html_content):
                 course_outline_link_tag = notes_td.find('a')
                 if isinstance(course_outline_link_tag, Tag):
                     course_outline_link = course_outline_link_tag.get('href')
-            if schedule_entries:
-                for sched_entry in schedule_entries:
-                    parsed_rows.append({
-                        "faculty": current_fac,
-                        "department": current_dept,
-                        "term": current_term,
-                        "course_title": current_adms_context_title,
-                        "course_id": course_id,
-                        "loi": loi,
-                        "type": course_type,
-                        "meet": meet,
-                        "catalog_number": cat_no,
-                        "day": sched_entry.get("Day"),
-                        "time": sched_entry.get("Time"),
-                        "duration": sched_entry.get("Dur"),
-                        "campus": sched_entry.get("Campus"),
-                        "room": sched_entry.get("Room"),
-                        "instructors": instructors,
-                        "notes_or_fees": notes_text,
-                        "course_outline_link": course_outline_link
-                    })
+            course_record = {
+                "faculty": current_fac,
+                "department": current_dept,
+                "term": current_term,
+                "course_title": current_adms_context_title,
+                "course_id": course_id,
+                "loi": loi,
+                "type": course_type,
+                "meet": meet,
+                "catalog_number": cat_no,
+                "instructors": instructors,
+                "notes_or_fees": notes_text,
+                "course_outline_link": course_outline_link,
+                "sections": []
+            }
+            parsed_rows.append(course_record)
+            last_course = course_record
+            last_section = None
+        # 9-td course row (main course row)
+        elif len(tds) == 9:
+            row_type_counts["course"] += 1
+            course_id = get_td_text(tds, 0)
+            loi = get_td_text(tds, 1)
+            course_type = get_td_text(tds, 2)
+            meet = get_td_text(tds, 3)
+            cat_no = get_td_text(tds, 4)
+            day = get_td_text(tds, 5)
+            time = get_td_text(tds, 6)
+            instructors = get_td_text(tds, 7)
+            notes_td = tds[8]
+            notes_text = notes_td.get_text(strip=True) if isinstance(notes_td, Tag) else None
+            course_outline_link = None
+            if isinstance(notes_td, Tag):
+                course_outline_link_tag = notes_td.find('a')
+                if isinstance(course_outline_link_tag, Tag):
+                    course_outline_link = course_outline_link_tag.get('href')
+            course_record = {
+                "faculty": current_fac,
+                "department": current_dept,
+                "term": current_term,
+                "course_title": current_adms_context_title,
+                "course_id": course_id,
+                "loi": loi,
+                "type": course_type,
+                "meet": meet,
+                "catalog_number": cat_no,
+                "day": day,
+                "time": time,
+                "instructors": instructors,
+                "notes_or_fees": notes_text,
+                "course_outline_link": course_outline_link,
+                "sections": []
+            }
+            parsed_rows.append(course_record)
+            last_course = course_record
+            last_section = None
+        # 5-td row: section or meeting time
+        elif len(tds) == 5:
+            section_types = ["TUTR", "ONLN", "SEMR", "STDO"]
+            is_section = any(st in (get_td_text(tds, idx) or "") for idx in range(5) for st in section_types)
+            if is_section and last_course is not None:
+                row_type_counts["section"] += 1
+                section = {
+                    "section_type": next((get_td_text(tds, idx) for idx in range(5) if (get_td_text(tds, idx) or "") and any(st in (get_td_text(tds, idx) or "") for st in section_types)), None),
+                    "day": get_td_text(tds, 0),
+                    "time": get_td_text(tds, 1),
+                    "duration": get_td_text(tds, 2),
+                    "campus": get_td_text(tds, 3),
+                    "room": get_td_text(tds, 4),
+                    "meeting_times": []
+                }
+                if "sections" not in last_course or last_course["sections"] is None:
+                    last_course["sections"] = []
+                last_course["sections"].append(section)
+                last_section = section
+            elif last_section is not None:
+                row_type_counts["meeting_time"] += 1
+                # Treat as meeting time for the last section
+                meeting_time = {
+                    "day": get_td_text(tds, 0),
+                    "time": get_td_text(tds, 1),
+                    "duration": get_td_text(tds, 2),
+                    "campus": get_td_text(tds, 3),
+                    "room": get_td_text(tds, 4)
+                }
+                if "meeting_times" not in last_section or last_section["meeting_times"] is None:
+                    last_section["meeting_times"] = []
+                last_section["meeting_times"].append(meeting_time)
+            elif last_course is not None:
+                row_type_counts["meeting_time"] += 1
+                # If no section, treat as meeting time for the course
+                meeting_time = {
+                    "day": get_td_text(tds, 0),
+                    "time": get_td_text(tds, 1),
+                    "duration": get_td_text(tds, 2),
+                    "campus": get_td_text(tds, 3),
+                    "room": get_td_text(tds, 4)
+                }
+                if "meeting_times" not in last_course or last_course["meeting_times"] is None:
+                    last_course["meeting_times"] = []
+                last_course["meeting_times"].append(meeting_time)
             else:
-                parsed_rows.append({
-                    "faculty": current_fac,
-                    "department": current_dept,
-                    "term": current_term,
-                    "course_title": current_adms_context_title,
-                    "course_id": course_id,
-                    "loi": loi,
-                    "type": course_type,
-                    "meet": meet,
-                    "catalog_number": cat_no,
-                    "day": None,
-                    "time": None,
-                    "duration": None,
-                    "campus": None,
-                    "room": None,
-                    "instructors": instructors,
-                    "notes_or_fees": notes_text,
-                    "course_outline_link": course_outline_link
-                })
+                row_type_counts["other"] += 1
+                # orphan 5-td row, just add as a record
+                parsed_rows.append({"row_index": i, "tds": [get_td_text(tds, idx) for idx in range(5)]})
         else:
-            print(f"Skipping row {i}: {len(tds)} tds. HTML: {str(row)[:100]}")
+            row_type_counts["other"] += 1
+            # Try to capture all data, even if row is malformed
+            parsed_rows.append({"row_index": i, "tds": [td.get_text(strip=True) for td in tds]})
 
     # Create DataFrame
     if parsed_rows:
@@ -191,6 +244,7 @@ def extract_course_data_from_html(html_content):
         df = pd.DataFrame()
         print("No course data rows found in the HTML table based on identified patterns.")
 
+    print(f"Row type summary: {{}}".format(row_type_counts))
     return df
 
 # --- Main execution ---
