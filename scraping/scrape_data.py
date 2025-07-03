@@ -210,7 +210,7 @@ if __name__ == "__main__":
         if json_output is None:
             json_output = "[]"
         # Save to a JSON file
-        output_filename = "scraping/york_university_course_timetable.json"
+        output_filename = "scraping/latest_course_catalog.json"
         with open(output_filename, "w") as f:
             f.write(json_output)
         print(f"JSON generated: {output_filename}")
