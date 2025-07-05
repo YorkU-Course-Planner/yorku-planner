@@ -1,0 +1,14 @@
+services:
+  yorku-planner-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - JAVA_OPTS=-Xmx512m -Xms256m
+    volumes:
+      # Optional: Mount application.properties for external configuration
+      - ../src/main/resources/application.properties:/app/config/application.properties:ro
+    restart: unless-stopped 
