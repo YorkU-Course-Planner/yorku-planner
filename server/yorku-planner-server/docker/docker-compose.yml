@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: yorku-planner-postgres
+    environment:
+      POSTGRES_DB: yorku_planner
+      POSTGRES_USER: yorku_planner_user
+      POSTGRES_PASSWORD: yorku_planner_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yorku_planner_user -d yorku_planner"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   yorku-planner-server:
     build:
       context: ..
@@ -11,4 +29,10 @@ services:
     volumes:
       # Optional: Mount application.properties for external configuration
       - ../src/main/resources/application.properties:/app/config/application.properties:ro
-    restart: unless-stopped 
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data: 

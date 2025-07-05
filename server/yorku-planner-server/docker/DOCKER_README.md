@@ -12,8 +12,11 @@ This guide explains how to run the YorkU Planner Spring Boot application using D
 ### Option 1: Using the provided script (Recommended)
 
 ```bash
-# Navigate to the server directory
-cd server/yorku-planner-server
+# Navigate to the docker directory
+cd server/yorku-planner-server/docker
+
+# Make the script executable (if needed)
+chmod +x docker-run.sh
 
 # Run the application
 ./docker-run.sh
@@ -22,8 +25,8 @@ cd server/yorku-planner-server
 ### Option 2: Using Docker Compose directly
 
 ```bash
-# Navigate to the server directory
-cd server/yorku-planner-server
+# Navigate to the docker directory
+cd server/yorku-planner-server/docker
 
 # Build and start the application
 docker-compose up --build
@@ -36,7 +39,7 @@ docker-compose up --build
 cd server/yorku-planner-server
 
 # Build the Docker image
-docker build -t yorku-planner-server .
+docker build -f docker/Dockerfile -t yorku-planner-server .
 
 # Run the container
 docker run -p 8080:8080 yorku-planner-server
@@ -56,7 +59,11 @@ Once the container is running, you can access:
 
 ### Build the image
 ```bash
-docker build -t yorku-planner-server .
+# From the server directory
+docker build -f docker/Dockerfile -t yorku-planner-server .
+
+# From the docker directory
+docker build -f Dockerfile -t yorku-planner-server ..
 ```
 
 ### Run the container
@@ -88,6 +95,7 @@ docker exec -it yorku-planner /bin/bash
 
 ### Start services
 ```bash
+# From the docker directory
 docker-compose up
 ```
 
@@ -118,6 +126,17 @@ The application uses the following default configuration:
 - **Port**: 8080
 - **Database**: H2 in-memory database
 - **JVM Options**: -Xmx512m -Xms256m
+- **Spring Profile**: docker
+- **Java Version**: Eclipse Temurin 17
+
+### Current Configuration Details
+
+The Docker setup includes:
+- Multi-stage build using Maven 3.9.5 and Eclipse Temurin 17
+- H2 in-memory database with console enabled
+- JPA with Hibernate for database operations
+- Debug logging enabled for development
+- Automatic restart policy (unless-stopped)
 
 You can modify these settings by:
 
@@ -151,24 +170,49 @@ docker system prune -a
 docker-compose build --no-cache
 ```
 
+### Permission issues with docker-run.sh
+If you get permission denied errors:
+```bash
+chmod +x docker-run.sh
+```
+
 ## Development with Docker
 
-For development, you can mount your source code as a volume:
+For development, you can mount your source code as a volume by modifying the `docker-compose.yml`:
 
 ```yaml
 volumes:
-  - ./src:/app/src
-  - ./pom.xml:/app/pom.xml
+  - ../src:/app/src
+  - ../pom.xml:/app/pom.xml
 ```
 
 This allows you to make changes to your code without rebuilding the entire image.
+
+## Project Structure
+
+```
+yorku-planner-server/
+├── docker/
+│   ├── DOCKER_README.md
+│   ├── docker-compose.yml
+│   ├── docker-run.sh
+│   └── Dockerfile
+├── src/
+│   └── main/
+│       ├── java/
+│       └── resources/
+│           └── application.properties
+└── pom.xml
+```
 
 ## Production Considerations
 
 For production deployment:
 
 1. Use a production-ready database (PostgreSQL, MySQL, etc.)
-2. Configure proper logging
+2. Configure proper logging levels
 3. Set up health checks
 4. Use environment variables for sensitive configuration
-5. Consider using Docker Swarm or Kubernetes for orchestration 
+5. Consider using Docker Swarm or Kubernetes for orchestration
+6. Implement proper security measures
+7. Set up monitoring and alerting 
